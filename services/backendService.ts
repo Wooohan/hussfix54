@@ -1,7 +1,5 @@
 import { CarrierData, InsurancePolicy, BasicScore, OosRate } from '../types';
-
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
-
 export const fetchCarrierFromBackend = async (mcNumber: string): Promise<CarrierData | null> => {
   try {
     const response = await fetch(`${BACKEND_URL}/api/scrape/carrier/${mcNumber}`);
@@ -14,7 +12,6 @@ export const fetchCarrierFromBackend = async (mcNumber: string): Promise<Carrier
     return null;
   }
 };
-
 export const fetchSafetyFromBackend = async (dotNumber: string): Promise<{
   rating: string;
   ratingDate: string;
@@ -32,10 +29,9 @@ export const fetchSafetyFromBackend = async (dotNumber: string): Promise<{
     return null;
   }
 };
-
 export const fetchInsuranceFromBackend = async (dotNumber: string): Promise<{
   policies: InsurancePolicy[];
-  raw: any;
+  raw: unknown;
 } | null> => {
   try {
     const response = await fetch(`${BACKEND_URL}/api/scrape/insurance/${dotNumber}`);
@@ -48,13 +44,11 @@ export const fetchInsuranceFromBackend = async (dotNumber: string): Promise<{
     return null;
   }
 };
-
-
 export interface TaskStatus {
   id: string;
   type: 'scraper' | 'insurance';
   status: 'running' | 'stopping' | 'completed' | 'stopped';
-  config: any;
+  config: Record<string, unknown>;
   progress: number;
   completed: number;
   total: number;
@@ -68,8 +62,7 @@ export interface TaskStatus {
   startedAt: string;
   stoppedAt: string | null;
 }
-
-export const startScraperTask = async (config: any): Promise<{ task_id: string; status: string }> => {
+export const startScraperTask = async (config: Record<string, unknown>): Promise<{ task_id: string; status: string }> => {
   const response = await fetch(`${BACKEND_URL}/api/tasks/scraper/start`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -78,7 +71,6 @@ export const startScraperTask = async (config: any): Promise<{ task_id: string; 
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return response.json();
 };
-
 export const stopScraperTask = async (taskId: string): Promise<void> => {
   await fetch(`${BACKEND_URL}/api/tasks/scraper/stop`, {
     method: 'POST',
@@ -86,7 +78,6 @@ export const stopScraperTask = async (taskId: string): Promise<void> => {
     body: JSON.stringify({ task_id: taskId }),
   });
 };
-
 export const getScraperStatus = async (taskId: string): Promise<TaskStatus | null> => {
   try {
     const response = await fetch(`${BACKEND_URL}/api/tasks/scraper/status?task_id=${taskId}`);
@@ -96,7 +87,6 @@ export const getScraperStatus = async (taskId: string): Promise<TaskStatus | nul
     return null;
   }
 };
-
 export const getScraperData = async (taskId: string): Promise<CarrierData[]> => {
   try {
     const response = await fetch(`${BACKEND_URL}/api/tasks/scraper/data?task_id=${taskId}`);
@@ -106,8 +96,7 @@ export const getScraperData = async (taskId: string): Promise<CarrierData[]> => 
     return [];
   }
 };
-
-export const startInsuranceTask = async (config: any): Promise<{ task_id: string; status: string }> => {
+export const startInsuranceTask = async (config: { dotNumbers?: string[] }): Promise<{ task_id: string; status: string }> => {
   const response = await fetch(`${BACKEND_URL}/api/tasks/insurance/start`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -116,7 +105,6 @@ export const startInsuranceTask = async (config: any): Promise<{ task_id: string
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return response.json();
 };
-
 export const stopInsuranceTask = async (taskId: string): Promise<void> => {
   await fetch(`${BACKEND_URL}/api/tasks/insurance/stop`, {
     method: 'POST',
@@ -124,7 +112,6 @@ export const stopInsuranceTask = async (taskId: string): Promise<void> => {
     body: JSON.stringify({ task_id: taskId }),
   });
 };
-
 export const getInsuranceStatus = async (taskId: string): Promise<TaskStatus | null> => {
   try {
     const response = await fetch(`${BACKEND_URL}/api/tasks/insurance/status?task_id=${taskId}`);
@@ -134,7 +121,6 @@ export const getInsuranceStatus = async (taskId: string): Promise<TaskStatus | n
     return null;
   }
 };
-
 export const getActiveTask = async (taskType: string): Promise<{ task_id: string | null; task?: TaskStatus }> => {
   try {
     const response = await fetch(`${BACKEND_URL}/api/tasks/active?task_type=${taskType}`);
