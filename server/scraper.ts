@@ -1,14 +1,12 @@
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { withTimeout, cleanText } from './utils';
-
 const HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
   'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
   'Accept-Language': 'en-US,en;q=0.5',
   'Connection': 'keep-alive',
 };
-
 const INSURANCE_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
   'Accept': 'application/json, text/plain, */*',
@@ -17,8 +15,6 @@ const INSURANCE_HEADERS = {
   'Origin': 'https://searchcarriers.com',
   'Connection': 'keep-alive',
 };
-
-
 export async function fetchFmcsa(url: string, retries = 1, delayMs = 200): Promise<string | null> {
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
@@ -32,8 +28,9 @@ export async function fetchFmcsa(url: string, retries = 1, delayMs = 200): Promi
         const text = resp.data as string;
         if (text && text.length > 100) return text;
       }
-    } catch (e: any) {
-      if (e.response && e.response.status >= 400 && e.response.status < 500) return null;
+    } catch (e: unknown) {
+      const axiosErr = e as { response?: { status?: number } };
+      if (axiosErr.response && axiosErr.response.status && axiosErr.response.status >= 400 && axiosErr.response.status < 500) return null;
     }
     if (attempt < retries) {
       await new Promise(r => setTimeout(r, delayMs * (attempt + 1)));
@@ -41,8 +38,6 @@ export async function fetchFmcsa(url: string, retries = 1, delayMs = 200): Promi
   }
   return null;
 }
-
-
 function cfDecodeEmail(encoded: string): string {
   try {
     const r = parseInt(encoded.substring(0, 2), 16);
@@ -55,7 +50,6 @@ function cfDecodeEmail(encoded: string): string {
     return '';
   }
 }
-
 function findValueByLabel($: cheerio.CheerioAPI, label: string): string {
   let result = '';
   $('th').each((_, el) => {
@@ -70,7 +64,6 @@ function findValueByLabel($: cheerio.CheerioAPI, label: string): string {
   });
   return result;
 }
-
 function findMarkedLabels($: cheerio.CheerioAPI, summary: string): string[] {
   const table = $(`table[summary="${summary}"]`);
   if (!table.length) return [];
@@ -83,21 +76,17 @@ function findMarkedLabels($: cheerio.CheerioAPI, summary: string): string[] {
   });
   return labels;
 }
-
 export async function findDotEmail(dotNumber: string): Promise<string> {
   if (!dotNumber) return '';
   const html = await fetchFmcsa(
     `https://ai.fmcsa.dot.gov/SMS/Carrier/${dotNumber}/CarrierRegistration.aspx`
   );
   if (!html) return '';
-
   const $ = cheerio.load(html);
   let email = '';
-
   $('label').each((_, labelEl) => {
     const labelText = $(labelEl).text() || '';
     if (!labelText.includes('Email:')) return;
-
     // Check parent for CF-protected email
     const parent = $(labelEl).parent();
     if (parent.length) {
@@ -112,7 +101,6 @@ export async function findDotEmail(dotNumber: string): Promise<string> {
         return false;
       }
     }
-
     // Check sibling
     const sibling = $(labelEl).next();
     if (sibling.length) {
@@ -132,10 +120,8 @@ export async function findDotEmail(dotNumber: string): Promise<string> {
       }
     }
   });
-
   return email;
 }
-
 export async function fetchSafetyData(dot: string): Promise<{
   rating: string;
   ratingDate: string;
@@ -144,25 +130,20 @@ export async function fetchSafetyData(dot: string): Promise<{
 }> {
   const empty = { rating: 'N/A', ratingDate: '', basicScores: [], oosRates: [] };
   if (!dot) return empty;
-
   const html = await fetchFmcsa(
     `https://ai.fmcsa.dot.gov/SMS/Carrier/${dot}/CompleteProfile.aspx`
   );
   if (!html) return empty;
-
   const $ = cheerio.load(html);
-
   // Safety Rating
   const ratingEl = $('#Rating');
   const rating = ratingEl.length ? cleanText(ratingEl.text()) : 'NOT RATED';
-
   const ratingDateEl = $('#RatingDate');
   let ratingDate = '';
   if (ratingDateEl.length) {
     const rd = cleanText(ratingDateEl.text());
     ratingDate = rd.replace(/Rating Date:|[()]/g, '').trim();
   }
-
   // BASIC Scores
   const categories = [
     'Unsafe Driving', 'Crash Indicator', 'HOS Compliance',
@@ -179,7 +160,6 @@ export async function fetchSafetyData(dot: string): Promise<{
       }
     });
   }
-
   // OOS Rates
   const oosRates: Array<{ type: string; rate: string; nationalAvg: string }> = [];
   const safetyRatingDiv = $('#SafetyRating');
@@ -201,32 +181,46 @@ export async function fetchSafetyData(dot: string): Promise<{
       });
     }
   }
-
   return { rating, ratingDate, basicScores, oosRates };
 }
-
+interface InspectionRecord {
+  reportNumber: string;
+  location: string;
+  date: string;
+  oosViolations: number;
+  driverViolations: number;
+  vehicleViolations: number;
+  hazmatViolations: number;
+  violationList: { label: string; description: string; weight: string }[];
+}
+interface CrashRecord {
+  date: string;
+  number: string;
+  state: string;
+  plateNumber: string;
+  plateState: string;
+  fatal: string;
+  injuries: string;
+}
 export async function fetchInspectionAndCrashData(dot: string): Promise<{
-  inspections: any[];
-  crashes: any[];
+  inspections: InspectionRecord[];
+  crashes: CrashRecord[];
 }> {
   if (!dot) return { inspections: [], crashes: [] };
-
   const html = await fetchFmcsa(
     `https://ai.fmcsa.dot.gov/SMS/Carrier/${dot}/CompleteProfile.aspx`
   );
   if (!html) return { inspections: [], crashes: [] };
-
   const $ = cheerio.load(html);
-  const inspections: any[] = [];
-  const crashes: any[] = [];
-
+  const inspections: InspectionRecord[] = [];
+  const crashes: CrashRecord[] = [];
   try {
     // --- INSPECTIONS ---
     const iTable = $('table#inspectionTable');
     if (iTable.length) {
       const iTbody = iTable.find('tbody.dataBody');
       if (iTbody.length) {
-        let currentReport: any = null;
+        let currentReport: InspectionRecord | null = null;
         iTbody.find('tr').each((_, row) => {
           const rowClasses = $(row).attr('class') || '';
           if (rowClasses.includes('inspection')) {
@@ -252,7 +246,6 @@ export async function fetchInspectionAndCrashData(dot: string): Promise<{
             const weightEl = $(row).find('td.weight');
             const weight = cleanText(weightEl.text());
             currentReport.violationList.push({ label: labelText, description: desc, weight });
-
             const labelLower = labelText.toLowerCase();
             if (rowClasses.includes('oos') || desc.toLowerCase().includes('(oos)')) {
               currentReport.oosViolations++;
@@ -271,7 +264,6 @@ export async function fetchInspectionAndCrashData(dot: string): Promise<{
         if (currentReport) inspections.push(currentReport);
       }
     }
-
     // --- CRASHES ---
     const cTable = $('table#crashTable');
     if (cTable.length) {
@@ -296,23 +288,43 @@ export async function fetchInspectionAndCrashData(dot: string): Promise<{
   } catch (e) {
     console.error('Error parsing inspection/crash data:', e);
   }
-
   return { inspections, crashes };
 }
-
+interface InsurancePolicyRecord {
+  dot: string;
+  carrier: string;
+  policyNumber: string;
+  effectiveDate: string;
+  coverageAmount: string;
+  type: string;
+  class: string;
+}
+interface InsuranceRawItem {
+  name_company?: string;
+  insurance_company?: string;
+  insurance_company_name?: string;
+  company_name?: string;
+  policy_no?: string;
+  policy_number?: string;
+  pol_num?: string;
+  effective_date?: string;
+  max_cov_amount?: string;
+  coverage_to?: string;
+  coverage_amount?: string;
+  ins_type_code?: string;
+  ins_class_code?: string;
+  data?: InsuranceRawItem[];
+}
 export async function fetchInsuranceData(dot: string): Promise<{
-  policies: any[];
-  raw: any;
+  policies: InsurancePolicyRecord[];
+  raw: InsuranceRawItem | InsuranceRawItem[] | null;
 }> {
   if (!dot) return { policies: [], raw: null };
-
   const urlsToTry = [
     `https://searchcarriers.com/company/${dot}/insurances`,
     `https://searchcarriers.com/api/company/${dot}/insurances`,
   ];
-
-  let result: any = null;
-
+  let result: InsuranceRawItem | InsuranceRawItem[] | null = null;
   for (const targetUrl of urlsToTry) {
     if (result !== null) break;
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -327,36 +339,33 @@ export async function fetchInsuranceData(dot: string): Promise<{
           const text = typeof resp.data === 'string' ? resp.data.trim() : JSON.stringify(resp.data);
           if (text && (text.startsWith('{') || text.startsWith('['))) {
             try {
-              result = typeof resp.data === 'string' ? JSON.parse(text) : resp.data;
+              result = (typeof resp.data === 'string' ? JSON.parse(text) : resp.data) as InsuranceRawItem | InsuranceRawItem[];
               break;
             } catch {
               // not valid JSON, try again
             }
           }
         }
-      } catch (e: any) {
-        if (e.response && e.response.status >= 400 && e.response.status < 500) break;
+      } catch (e: unknown) {
+        const axiosErr = e as { response?: { status?: number } };
+        if (axiosErr.response && axiosErr.response.status && axiosErr.response.status >= 400 && axiosErr.response.status < 500) break;
       }
       if (attempt < 1) {
         await new Promise(r => setTimeout(r, 100 * (attempt + 1)));
       }
     }
   }
-
   if (result === null) return { policies: [], raw: null };
-
-  const rawData = result.data || (Array.isArray(result) ? result : []);
-  const policies: any[] = [];
-
+  const resultObj = result as InsuranceRawItem & { data?: InsuranceRawItem[] };
+  const rawData: InsuranceRawItem[] = resultObj.data || (Array.isArray(result) ? result as InsuranceRawItem[] : []);
+  const policies: InsurancePolicyRecord[] = [];
   if (Array.isArray(rawData)) {
     for (const p of rawData) {
       const carrier = (
         p.name_company || p.insurance_company || p.insurance_company_name || p.company_name || 'NOT SPECIFIED'
       ).toString().toUpperCase();
-
       const policyNumber = (p.policy_no || p.policy_number || p.pol_num || 'N/A').toString().toUpperCase();
       const effectiveDate = p.effective_date ? p.effective_date.split(' ')[0] : 'N/A';
-
       let coverage: string = p.max_cov_amount || p.coverage_to || p.coverage_amount || 'N/A';
       if (coverage !== 'N/A' && !isNaN(Number(coverage))) {
         const num = Number(coverage);
@@ -364,16 +373,13 @@ export async function fetchInsuranceData(dot: string): Promise<{
           ? `$${(num * 1000).toLocaleString()}`
           : `$${num.toLocaleString()}`;
       }
-
       let insType = (p.ins_type_code || 'N/A').toString();
       if (insType === '1') insType = 'BI&PD';
       else if (insType === '2') insType = 'CARGO';
       else if (insType === '3') insType = 'BOND';
-
       let insClass = (p.ins_class_code || 'N/A').toString().toUpperCase();
       if (insClass === 'P') insClass = 'PRIMARY';
       else if (insClass === 'E') insClass = 'EXCESS';
-
       policies.push({
         dot,
         carrier,
@@ -385,29 +391,52 @@ export async function fetchInsuranceData(dot: string): Promise<{
       });
     }
   }
-
   return { policies, raw: result };
 }
-
-export async function scrapeCarrier(mcNumber: string): Promise<any | null> {
+export interface ScrapedCarrier {
+  mcNumber: string;
+  dotNumber: string;
+  legalName: string;
+  dbaName: string;
+  entityType: string;
+  status: string;
+  email: string;
+  phone: string;
+  powerUnits: string;
+  nonCmvUnits: string;
+  drivers: string;
+  physicalAddress: string;
+  mailingAddress: string;
+  dateScraped: string;
+  mcs150Date: string;
+  mcs150Mileage: string;
+  operationClassification: string[];
+  carrierOperation: string[];
+  cargoCarried: string[];
+  outOfServiceDate: string;
+  stateCarrierId: string;
+  dunsNumber: string;
+  safetyRating: string;
+  safetyRatingDate: string;
+  basicScores: { category: string; measure: string }[];
+  oosRates: { type: string; rate: string; nationalAvg: string }[];
+  inspections: InspectionRecord[];
+  crashes: CrashRecord[];
+}
+export async function scrapeCarrier(mcNumber: string): Promise<ScrapedCarrier | null> {
   const html = await fetchFmcsa(
     `https://safer.fmcsa.dot.gov/query.asp?searchtype=ANY&query_type=queryCarrierSnapshot&query_param=MC_MX&query_string=${mcNumber}`
   );
   if (!html) return null;
-
   const $ = cheerio.load(html);
   if (!$('center').length) return null;
-
   const getVal = (label: string) => findValueByLabel($, label);
   const dotNumber = getVal('USDOT Number:');
-
   let status = getVal('Operating Authority Status:');
   status = status.replace(/(\*Please Note|Please Note|For Licensing)[\s\S]*/i, '').replace(/\s+/g, ' ').trim();
-
   let email = '';
-  let safety: any = null;
-  let inspData: any = null;
-
+  let safety: Awaited<ReturnType<typeof fetchSafetyData>> | null = null;
+  let inspData: Awaited<ReturnType<typeof fetchInspectionAndCrashData>> | null = null;
   if (dotNumber) {
     const emptyInsp = { inspections: [], crashes: [] };
     const emptySafety = { rating: 'N/A', ratingDate: '', basicScores: [], oosRates: [] };
@@ -417,9 +446,7 @@ export async function scrapeCarrier(mcNumber: string): Promise<any | null> {
       withTimeout(fetchInspectionAndCrashData(dotNumber), 15000, emptyInsp),
     ]);
   }
-
   const cleanEmail = email.replace(/[\[\]Â]/g, '').trim();
-
   return {
     mcNumber,
     dotNumber,
